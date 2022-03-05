@@ -1,52 +1,38 @@
 """
 TODO
-:в лотерее объединить стейты 20 и 40
-:сделать бек с лотерее
-:сделать сначала число, потом ставку
+
 """
 
 import sqlite3
 import random
 from aiogram import Bot, types
-from aiogram.types import ReplyKeyboardMarkup
+from aiogram.types import ReplyKeyboardMarkup, InputMedia, InputFile, ReplyKeyboardRemove
 from aiogram.dispatcher import Dispatcher
-from aiogram.utils.markdown import text
-from aiogram.dispatcher.filters import state
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ParseMode, CallbackQuery, ContentType
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.utils import executor
 from config_file import *
-from selenium import webdriver
-import time
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-import wikipedia
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
 
-#
-# PATH = '/Users/ategran/PycharmProjects/pythonProject3/chromedriver'
-# options = webdriver.ChromeOptions()
-# ser = Service('/Users/ategran/PycharmProjects/pythonProject3/chromedriver')
-# driver = webdriver.Chrome(options=options, service=ser)
 
 con = sqlite3.connect('new_db.db')
 c = con.cursor()
 c.execute('CREATE TABLE IF NOT EXISTS gamers ('
           '    gamer_id   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,'
           '    user_id     INTEGER,'
-          '    balance       INTEGER DEFAULT (0),'
-          '    common      INTEGER DEFAULT (0),'
-          '    rare      INTEGER DEFAULT (0),'
-          '    epic      INTEGER DEFAULT (0)'
+          '    balance       INTEGER DEFAULT (0)'
           '    );')
 c.execute('CREATE TABLE IF NOT EXISTS store ('
           '    item_id   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,'
           '    rarity    VARCHAR (6),'
-          '    link      VARCHAR (30)'
+          '    link      VARCHAR (30),'
+          '    media      VARCHAR (50)'
           '    );')
 c.execute('CREATE TABLE IF NOT EXISTS collection ('
+          '    collection_id     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,'
           '    user_id     INTEGER,'
           '    item_id       INTEGER,'
-          '    rarity    VARCHAR (6),'
           '    FOREIGN KEY (item_id) REFERENCES store (item_id)'
           '    );')
 bot = Bot(telegram_token, parse_mode=ParseMode.HTML)
@@ -56,11 +42,6 @@ dp = Dispatcher(bot, storage=MemoryStorage())
 /start
 '''
 
-
-# @dp.message_handler(commands=['start', 'help'])
-# async def start(msg: types.Message):
-#     state = dp.current_state()
-#     await state.set_state('non_state')
 
 @dp.message_handler(state='*', commands=['start', 'help'])
 async def start(msg: types.Message):
@@ -151,6 +132,17 @@ async def inline_keyboard(callback_query: CallbackQuery):
 '''
 
 
+class PlayLottery(StatesGroup):
+    mode = State()
+    bet = State()
+    number = State()
+
+
+class SearchShop(StatesGroup):
+    price = State()
+    rarity = State()
+
+
 def game_keyboard(user_id):
     keyboard = ReplyKeyboardMarkup(one_time_keyboard=True,
                                    resize_keyboard=True)
@@ -166,9 +158,8 @@ def game_rules(user_id):
 
 
 def click_keyboard(user_id):
-    keyboard = ReplyKeyboardMarkup(row_width=2,
-                                   one_time_keyboard=True,
-                                   resize_keyboard=True)
+    keyboard = InlineKeyboardMarkup(one_time_keyboard=True,
+                                    resize_keyboard=True)
     actions = {'Click⭐️': 'click', 'Back': 'back'}
     for act in actions:
         keyboard.insert(InlineKeyboardButton(act, callback_data=actions[act]))
@@ -192,15 +183,71 @@ def lottery_mode(user_id):
     return keyboard
 
 
+def check_number(user_id, text):
+    try:
+        pick = int(text)
+        if pick not in range(1, 101):
+            return False
+        return True
+    except ValueError:
+        return False
+
+
+def back_kb(user_id):
+    keyboard = InlineKeyboardMarkup(one_time_keyboard=True,
+                                    resize_keyboard=True)
+    keyboard.insert(InlineKeyboardButton('Back', callback_data='back'))
+    return keyboard
+
+
+def ask_more(user_id):
+    keyboard = ReplyKeyboardMarkup(row_width=2,
+                                   one_time_keyboard=True,
+                                   resize_keyboard=True)
+    options = {'Yes!': 'yes', 'Back': 'back'}
+    for opt in options:
+        keyboard.insert(InlineKeyboardButton(opt, callback_data=options[opt]))
+    return keyboard
+
+
+def choose_rarity(user_id):
+    keyboard = ReplyKeyboardMarkup(row_width=3,
+                                   one_time_keyboard=True,
+                                   resize_keyboard=True)
+    options = {'Common': 'common', 'Rare': 'rare', 'Epic': 'epic', 'Back': 'back'}
+    for opt in options:
+        keyboard.insert(InlineKeyboardButton(opt, callback_data=options[opt]))
+    return keyboard
+
+
+def buy_button(user_id):
+    keyboard = InlineKeyboardMarkup(row_width=3)
+    options = {'⬅️': 'prev', 'Buy': 'buy',
+               '➡️': 'next', 'Back': 'Back'}
+    for o in options:
+        keyboard.insert(InlineKeyboardButton(o, callback_data=options[o]))
+    return keyboard
+
+
+def search_items(user_id):
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    options = {'⬅️': 'prev', '➡️': 'next',
+               'Back': 'Back'}
+    for o in options:
+        keyboard.insert(InlineKeyboardButton(o, callback_data=options[o]))
+    return keyboard
+
+
 @dp.message_handler(state='*', commands=['game'])
 async def on_text(msg: types.Message):
     state = dp.current_state()
     await state.set_state('rules')
     c.execute(f"SELECT user_id FROM gamers WHERE gamers.user_id = {msg.from_user.id}")
     if c.fetchone() is None:
-        c.executescript(f"INSERT INTO gamers VALUES (null, {msg.from_user.id}, 0, 0, 0, 0)")
+        c.executescript(f"INSERT INTO gamers VALUES (null, {msg.from_user.id}, 0)")
     await bot.send_message(msg.from_user.id, text=rules,
                            reply_markup=game_rules(msg.from_user.id))
+    ReplyKeyboardRemove()
 
 
 @dp.callback_query_handler(state='rules')
@@ -226,21 +273,19 @@ clicker gameplay
 """
 
 
-@dp.message_handler(lambda message: message.text == 'Click⭐️', state='clicker')
-async def on_text(msg: types.Message):
-    c.execute(f"SELECT balance FROM gamers WHERE gamers.user_id = {msg.from_user.id}")
-    score = c.fetchone()[0]
-    await bot.send_message(msg.from_user.id, text=f'SCORE: {score + 1}',
-                           reply_markup=click_keyboard(msg.from_user.id))
-    c.executescript(f"UPDATE gamers SET balance = {score + 1} WHERE user_id = {msg.from_user.id}")
-
-
-@dp.message_handler(lambda message: message.text == 'Back', state='clicker')
-async def on_text(msg: types.Message):
+@dp.callback_query_handler(state='clicker')
+async def inline_keyboard(callback_query: CallbackQuery):
     state = dp.current_state()
-    await bot.send_message(msg.from_user.id, text='Choose an action',
-                           reply_markup=game_keyboard(msg.from_user.id))
-    await state.set_state('game')
+    if callback_query.data == 'back':
+        await bot.send_message(callback_query.from_user.id, text='Choose an action',
+                               reply_markup=game_keyboard(callback_query.from_user.id))
+        await state.set_state('game')
+    else:
+        c.execute(f"SELECT balance FROM gamers WHERE gamers.user_id = {callback_query.from_user.id}")
+        score = c.fetchone()[0]
+        await callback_query.message.edit_text(text=f'SCORE: {score + 1}',
+                                               reply_markup=click_keyboard(callback_query.from_user.id))
+        c.executescript(f"UPDATE gamers SET balance = {score + 1} WHERE user_id = {callback_query.from_user.id}")
 
 
 @dp.message_handler(lambda message: message.text == 'Lottery🍀', state='game')
@@ -255,26 +300,38 @@ lottery gameplay
 '''
 
 
-@dp.message_handler(lambda message: message.text in ['50% Chance - 2x', '25% Chance - 4x'], state='fortune')
-async def on_text(msg: types.Message):
-    state = dp.current_state()
-    prices = {'50% Chance - 2x': 20, '25% Chance - 4x': 40}
-    c.execute(f"SELECT balance FROM gamers WHERE user_id = {msg.from_user.id}")
+@dp.message_handler(lambda message: message.text in ['50% Chance - 2x', '25% Chance - 4x', 'Yes!'], state='fortune')
+async def on_text(msg: types.Message, state: FSMContext):
+    prices = {'50% Chance - 2x': 20, '25% Chance - 4x': 40, 'Yes!': 0}
+    id = msg.from_user.id
+    if msg.text != 'Yes!':
+        await state.update_data(mode=prices[msg.text])
+    else:
+        data = await state.get_data()
+        prices[msg.text] = data['mode']
+    c.execute(f"SELECT balance FROM gamers WHERE user_id = {id}")
     score = c.fetchone()[0]
     await bot.send_message(msg.from_user.id, text=f'Your balance: {score}')
     if score < prices[msg.text]:
-        await bot.send_message(msg.from_user.id, text=f'Click more points, you need at least. \n'
-                                                      f' Choose an action {prices[msg.text]}!',
-                               reply_markup=game_keyboard(msg.from_user.id))
+        await bot.send_message(msg.from_user.id, text=f'Click more points, you need at least {prices[msg.text]}! \n'
+                                                      f'Choose action',
+                               reply_markup=game_keyboard(id))
         await state.set_state('game')
     else:
-        await bot.send_message(msg.from_user.id, text=f'Write your bet equal or more than {prices[msg.text]} )')
-        await state.set_state(state=str(prices[msg.text]))
+        await PlayLottery.mode.set()
+        await bot.send_message(msg.from_user.id, text=f'Write your bet equal or more than {prices[msg.text]} )',
+                               reply_markup=back_button(id))
 
 
-@dp.message_handler(state='20')
-async def on_text(msg: types.Message):
-    state = dp.current_state()
+@dp.message_handler(lambda message: message.text == 'Back', state=PlayLottery.mode)
+async def on_text(msg: types.Message, state: FSMContext):
+    await bot.send_message(msg.from_user.id, text=lottery_text, reply_markup=lottery_mode(msg.from_user.id))
+    await state.set_state('fortune')
+
+
+@dp.message_handler(state=PlayLottery.mode)
+async def on_text(msg: types.Message, state: FSMContext):
+    user_data = await state.get_data()
     try:
         bet = int(msg.text)
         c.execute(f"SELECT balance FROM gamers WHERE user_id = {msg.from_user.id}")
@@ -282,67 +339,116 @@ async def on_text(msg: types.Message):
         if score < bet:
             await bot.send_message(msg.from_user.id,
                                    text='The bet is bigger than your balance. \n Write your bet (in clicks)')
-        elif bet < 20:
+        elif bet < user_data['mode']:
             await bot.send_message(msg.from_user.id,
-                                   text=f'Too small bet. Should be equal or more than 20.'
+                                   text=f"Too small bet. Should be equal or more than {user_data['mode']}."
                                         f' \n Write your bet (in clicks)')
         else:
-            c.executescript(f"UPDATE gamers SET balance = {score - bet} WHERE user_id = {msg.from_user.id}")
             await bot.send_message(msg.from_user.id, text='Your number (1-100): ')
-            await state.set_state('check_bet_1')
-    except ValueError:
-        await bot.send_message(msg.from_user.id,
-                               text='Error: incorrect input! \n Write your bet by digits')
-
-@dp.message_handler(state='40')
-async def on_text(msg: types.Message):
-    state = dp.current_state()
-    try:
-        bet = int(msg.text)
-        c.execute(f"SELECT balance FROM gamers WHERE user_id = {msg.from_user.id}")
-        score = c.fetchone()[0]
-        if score < bet:
-            await bot.send_message(msg.from_user.id,
-                                   text='The bet is bigger than your balance. \n Write your bet (in clicks)')
-        elif bet < 40:
-            await bot.send_message(msg.from_user.id,
-                                   text=f'Too small bet. Should be equal or more than 40.'
-                                        f' \n Write your bet (in clicks)')
-        else:
-            c.executescript(f"UPDATE gamers SET balance = {score - bet} WHERE user_id = {msg.from_user.id}")
-            await bot.send_message(msg.from_user.id, text='Your number (1-100): ')
-            await state.set_state('check_bet_2')
+            await state.update_data(bet=bet)
+            await PlayLottery.bet.set()
     except ValueError:
         await bot.send_message(msg.from_user.id,
                                text='Error: incorrect input! \n Write your bet by digits')
 
 
-@dp.message_handler(state='check_bet_1')
-async def on_text(msg: types.Message):
-    state = dp.current_state()
-    areas = [(1, 50), (51, 100)]
-    try:
-        pick = int(msg.text)
-        if pick not in range(1, 100):
-            await bot.send_message(msg.from_user.id,
-                                   text='Error: incorrect input! \n Number should be in the range from 1 to 100')
-        else:
-            lucky_area = random.randint(0, 1)
-            if pick in range(areas[lucky_area][0], areas[lucky_area][1]):
-                pass
-    except ValueError:
-        await bot.send_message(msg.from_user.id,
-                               text='Error: incorrect input! \n Write your number by digits')
+@dp.message_handler(lambda message: message.text == 'Back', state=PlayLottery.bet)
+async def on_text(msg: types.Message, state: FSMContext):
+    await bot.send_message(msg.from_user.id, text=lottery_text, reply_markup=lottery_mode(msg.from_user.id))
+    await state.set_state('fortune')
 
-@dp.message_handler(state='check_bet_2')
-async def on_text(msg: types.Message):
-    state = dp.current_state()
+
+@dp.message_handler(state=PlayLottery.bet)
+async def on_text(msg: types.Message, state: FSMContext):
+    user_data = await state.get_data()
+    id = msg.from_user.id
+    areas = [[(1, 50), (51, 100)], [(1, 25), (26, 50), (51, 75), (76, 100)]][int(user_data['mode'] / 20 - 1)]
+    lucky_area = random.randint(0, int(user_data['mode'] / 10 - 1))
+    c.execute(f"SELECT balance FROM gamers WHERE user_id = {id}")
+    score = c.fetchone()[0]
+    if check_number(id, msg.text):
+        c.executescript(f"UPDATE gamers SET balance = {score - user_data['bet']} WHERE user_id = {id}")
+        if int(msg.text) in range(areas[lucky_area][0], areas[lucky_area][1]):
+            await bot.send_message(id, text=f"You win, number is in the area {areas[lucky_area]}! Double bet")
+            c.executescript(f"UPDATE gamers SET balance = {score + int(user_data['mode'] / 10) * int(user_data['bet'])}"
+                            f" WHERE user_id = {id}")
+        else:
+            await bot.send_message(id, text=f"You lose, number isn't in the area {areas[lucky_area]}")
+        await state.set_state('fortune')
+        await bot.send_message(id, text="Play one more time? (:", reply_markup=ask_more(id))
+    else:
+        await bot.send_message(id, text='Error: incorrect input! \n Number should be written by digits and in the '
+                                        'range from 1 to 100')
 
 
 @dp.message_handler(lambda message: message.text == 'Shop💰', state='game')
 async def on_text(msg: types.Message):
     state = dp.current_state()
-    await bot.send_message(msg.from_user.id, text='shop')
+    id = msg.from_user.id
+    await bot.send_message(msg.from_user.id, text='Choose rarity', reply_markup=choose_rarity(id))
+    await state.set_state('rarity')
+
+
+@dp.message_handler(lambda message: message.text in ['Common', 'Rare', 'Epic'], state='rarity')
+async def on_text(msg: types.Message, state: FSMContext):
+    id = msg.from_user.id
+    rarity = msg.text
+    await state.update_data(current_pic=1, rarity=rarity)
+    await bot.send_photo(id, open_pic[rarity], reply_markup=buy_button(id))
+    await SearchShop.price.set()
+
+
+@dp.callback_query_handler(state=SearchShop.price)
+async def inline_keyboard(callback_query: CallbackQuery, state: FSMContext):
+    user_data = await state.get_data()
+    prices = {'Common': 10, 'Rare': 25, 'Epic': 100}
+    id = callback_query.from_user.id
+    c.execute(f"SELECT count(link) FROM store WHERE rarity = '{user_data['rarity']}'")
+    board = c.fetchone()[0]
+    c.execute(f"SELECT link FROM store WHERE rarity = '{user_data['rarity']}'")
+    pic = user_data['current_pic']
+    links = []
+    for img in c.fetchall():
+        links.append(img)
+    navigation = ['prev', 'next']
+    if callback_query.data in navigation:
+        await state.update_data(current_pic=pic + (2 * navigation.index(callback_query.data)) - 1)
+        if (navigation.index(callback_query.data) == 0) and (pic == 1):
+            await state.update_data(current_pic=board)
+        elif (navigation.index(callback_query.data) == 1) and (pic == board):
+            await state.update_data(current_pic=1)
+        user_data = await state.get_data()
+        path = f"{path_to_dir}/{user_data['rarity'][0]}{user_data['current_pic']}.jpg"
+        file = InputMedia(media=InputFile(path))
+        await callback_query.message.edit_media(file, reply_markup=buy_button(id))
+    elif callback_query.data == 'Back':
+        await bot.send_message(callback_query.from_user.id, text='Choose rarity', reply_markup=choose_rarity(id))
+        await state.set_state('rarity')
+    else:
+        c.execute(f"SELECT balance FROM gamers WHERE user_id = {id}")
+        score = c.fetchone()[0]
+        price = prices[user_data['rarity']]
+        await bot.send_message(id,
+                               text=f"This item costs {price} \n"
+                                    f"You have {score}")
+        if score < price:
+            await bot.send_message(id, text=f"You need {price - score} clicks to buy it.")
+            await bot.send_photo(id, open_pic[user_data['rarity']], reply_markup=buy_button(id))
+        else:
+            user_data = await state.get_data()
+            path = f"{path_to_dir}/{user_data['rarity'][0]}{user_data['current_pic']}.jpg"
+            c.execute(f"SELECT item_id FROM store WHERE link = '{path}'")
+            item_id = c.fetchone()[0]
+            c.execute(f"SELECT item_id FROM collection WHERE item_id = '{item_id}'")
+            if c.fetchone() is None:
+                c.executescript(f"UPDATE gamers SET balance = {score - price} WHERE user_id = {id}")
+                c.executescript(f"INSERT INTO collection VALUES (null, {id}, {item_id})")
+                await bot.send_message(id, text=f"Transaction completed. Check your collection \n"
+                                                f"Now your balance is {score - price}")
+            else:
+                await bot.send_message(id, text=f"You have already bought this item.")
+            await bot.send_message(callback_query.from_user.id, text='Choose rarity', reply_markup=choose_rarity(id))
+            await state.set_state('rarity')
 
 
 @dp.message_handler(lambda message: message.text == 'Leaderboard🏆', state='game')
@@ -353,8 +459,7 @@ async def on_text(msg: types.Message):
     for i in range(3):
         lp.append(c.fetchone()[0])
     c.execute(f"SELECT user_id from gamers ORDER BY balance DESC")
-    leaders = f'''
-    🥇{c.fetchone()[0]}: {lp[0]}\n
+    leaders = f'''🥇{c.fetchone()[0]}: {lp[0]}\n
     🥈{c.fetchone()[0]}: {lp[1]}\n
     🥉{c.fetchone()[0]}: {lp[2]}\n
     '''
@@ -365,234 +470,134 @@ async def on_text(msg: types.Message):
 @dp.message_handler(lambda message: message.text == 'My collection🧸', state='game')
 async def on_text(msg: types.Message):
     state = dp.current_state()
-    await bot.send_message(msg.from_user.id, text='collec')
+    id = msg.from_user.id
+    await bot.send_message(id, text='Choose rarity', reply_markup=choose_rarity(id))
+    await state.set_state('collection_rarity')
 
 
-@dp.message_handler(lambda message: message.text == 'Back', state='game')
+@dp.message_handler(lambda message: message.text in ['Common', 'Rare', 'Epic'], state='collection_rarity')
+async def on_text(msg: types.Message, state: FSMContext):
+    id = msg.from_user.id
+    rarity = msg.text
+    c.execute(
+        f"select item_id from collection where (item_id in (select item_id from store where rarity = '{rarity}')) and (user_id = {id});")
+    item_list = c.fetchall()
+    if not item_list:
+        await bot.send_message(id, text=f"You don't have any {rarity} items")
+        await bot.send_message(id, text='Choose rarity', reply_markup=choose_rarity(id))
+    else:
+        item_list = [item[0] for item in item_list]
+        c.execute(f"select link from store where item_id in ({str(item_list)[1:-1:]});")
+        link_list = c.fetchall()
+        link_list = [link[0] for link in link_list]
+        c.execute(f"SELECT media FROM store WHERE item_id = {item_list[0]}")
+        img = c.fetchone()[0]
+        await bot.send_photo(id, img, reply_markup=search_items(id))
+        await state.update_data(current_pic=item_list[0], items=link_list, rarity=rarity)
+        await SearchShop.rarity.set()
+
+
+@dp.callback_query_handler(state=SearchShop.rarity)
+async def inline_keyboard(callback_query: CallbackQuery, state: FSMContext):
+    user_data = await state.get_data()
+    items = user_data['items']
+    navigation = ['prev', 'next']
+    if callback_query.data in navigation:
+        move = 2 * navigation.index(callback_query.data) - 1
+        if len(items) != 1:
+            items = items[move:] + items[:move]
+        await state.update_data(items=items)
+        user_data = await state.get_data()
+        file = InputMedia(media=InputFile(user_data['items'][0]))
+        await callback_query.message.edit_media(file, reply_markup=search_items(id))
+    elif callback_query.data == 'Back':
+        await bot.send_message(callback_query.from_user.id, text='Choose rarity', reply_markup=choose_rarity(id))
+        await state.set_state('collection_rarity')
+
+
+@dp.message_handler(lambda message: message.text == 'Back', state='*')
+async def on_text(msg: types.Message):
+    state = dp.current_state()
+    await bot.send_message(msg.from_user.id, text='Choose an action',
+                           reply_markup=game_keyboard(msg.from_user.id))
+    await state.set_state('game')
+
+
+@dp.message_handler(lambda message: message.text == 'Back🚪', state='game')
 async def on_text(msg: types.Message):
     state = dp.current_state()
     await state.finish()
+    ReplyKeyboardRemove()
     await bot.send_message(msg.from_user.id, text=start_text)
 
 
 '''
-/wiki - шляпа
+/cities
 '''
 
-# @dp.message_handler(commands=['wiki'])
-# async def wiki(msg: types.Message):
-#     state = dp.current_state()
-#     keyboard = InlineKeyboardMarkup(row_width=2)
-#     text = 'Send me your query'
-#     keyboard.insert(InlineKeyboardButton('Back', callback_data='back'))
-#     await bot.send_message(msg.from_user.id, text=text, reply_markup=keyboard)
-#     await state.set_state('query')
-#
-#
-# @dp.message_handler(state='query')
-# async def on_text(msg: types.Message):
-#     wikipedia.set_lang("en")
-#     results = wikipedia.search(msg.text)
-#     match = wikipedia.suggest(msg.text)
-#     if (len(results) == 0) or (match is not None):
-#         text = "This page doesn't exist"
-#     else:
-#         text = wikipedia.summary(msg.text, sentences=6)
-#     keyboard = InlineKeyboardMarkup(row_width=2)
-#     keyboard.insert(InlineKeyboardButton('Back', callback_data='back'))
-#     await bot.send_message(msg.from_user.id, text=text, reply_markup=keyboard)
-#
-#
-# @dp.callback_query_handler(state='query')
-# async def inline_keyboard(callback_query: CallbackQuery):
-#     state = dp.current_state()
-#     await bot.send_message(callback_query.from_user.id, text=start_text)
-#     await state.finish()
-#
+class City(StatesGroup):
+    name = State()
 
-'''
-/tic_tac_toe - шляпа
-'''
-
-# def keyboard_tic(user_id, inp=None):
-#     keyboard = InlineKeyboardMarkup(row_width=3)
-#     for i in range(9):
-#         if inp is not None:
-#             if i == int(inp):
-#                 keyboard.insert(InlineKeyboardButton('❌', callback_data='x'+str(i)))
-#             else:
-#                 keyboard.insert(InlineKeyboardButton('⬜️️️', callback_data=str(i)))
-#         else:
-#             keyboard.insert(InlineKeyboardButton('⬜️️️', callback_data=str(i)))
-#     return keyboard
-
-#
-# def choose_side(user_id):
-#     keyboard = InlineKeyboardMarkup(row_width=2)
-#     cmds = {'❌': 'x', '⭕️': 'o'}
-#     for cmd in cmds:
-#         keyboard.insert(InlineKeyboardButton(cmd, callback_data=cmds[cmd]))
-#     return keyboard
-#
-#
-# @dp.message_handler(commands=['tic_tac_toe'])
-# async def tic_tac_toe(msg: types.Message):
-#     state = dp.current_state()
-#     await bot.send_message(msg.from_user.id, text='Choose your side',
-#                            reply_markup=choose_side(msg.from_user.id))
-#     await state.set_state('side')
-#
-#
-# @dp.callback_query_handler(state='side')
-# async def inline_keyboard(callback_query: CallbackQuery):
-#     state = dp.current_state()
-#     await state.set_state(callback_query.data)
-#     print(callback_query.data)
-#     await bot.send_message(callback_query.from_user.id, text='Use buttons to make gambits',
-#                            reply_markup=keyboard_tic(callback_query.from_user.id))
-#
-#
-# @dp.callback_query_handler(state='x')
-# async def inline_keyboard(callback_query: CallbackQuery):
-#     c.execute(f"INSERT INTO tic_players VALUES (NULL, {callback_query.from_user.id}, "
-#               f"SELECT )")
-#
-#     await bot.send_message(callback_query.from_user.id, text='Use buttons to make gambits',
-#                            reply_markup=keyboard_tic(callback_query.from_user.id, callback_query.data))
-#     if callback_query.data != '4':
-#         pass
-#
-#
-# @dp.callback_query_handler(state='o')
-# async def inline_keyboard(callback_query: CallbackQuery):
-#     print(callback_query.data)
-#
-
-"""
-работает и без этого
-"""
-
-# def open_pet_url(pet):
-#     if pet == 'cats':
-#         driver.get('https://pixabay.com/ru/images/search/%D0%BA%D0%BE%D1%82%D1%8F%D1%82%D0%B0/')
-#     else:
-#         driver.get('https://www.google.com/search?q=dogs&tbm=isch&ved=2ahUKEwjq5aGUg_X1AhXEgSoKHfUvACkQ2-cCegQIABAA&oq=dogs&gs_lcp=CgNpbWcQAzIECAAQQzIECAAQQzIFCAAQgAQyBQgAEIAEMgUIABCABDIFCAAQgAQyBQgAEIAEMgQIABBDMgUIABCABDIFCAAQgAQ6BwgAELEDEEM6CAgAEIAEELEDULsJWLkQYNgSaABwAHgAgAGAAYgBnQSSAQMyLjOYAQCgAQGqAQtnd3Mtd2l6LWltZ8ABAQ&sclient=img&ei=_fUEYqrzMsSDqgH134DIAg&rlz=1C5GCEA_enRU988RU988&hl=ru')
-#     time.sleep(2)
-#     return
-
-# @dp.callback_query_handler(state='next')
-# async def inline_keyboard(callback_query: CallbackQuery):
-#     state = dp.current_state()
-#     if callback_query.data == 'back':
-#         text = 'Which one tou want to see? (:'
-#         await bot.send_message(callback_query.from_user.id, text=text,
-#                                reply_markup=keyboard_menu(callback_query.from_user.id))
-#         await state.set_state('pets')
-#     else:
-#         print(callback_query.data)
-#         await state.set_state(callback_query.data)
-#         img = return_pet_img(callback_query.data)
-#         await bot.send_photo(callback_query.from_user.id, img, reply_markup=pets_cmd(callback_query.from_user.id))
-
-'''
- написал лучше
-'''
-# def open_pet_url(pet):
-#     if pet == 'cats':
-#         driver.get('https://pixabay.com/ru/images/search/%D0%BA%D0%BE%D1%82%D1%8F%D1%82%D0%B0/')
-#         time.sleep(2)
-#         img = driver.execute_script("return document.getElementsByClassName('link--h3bPW')[0].href")
-#         print(img)
-#     else:
-#         driver.get('https://www.google.com/search?q=dogs&tbm=isch&ved=2ahUKEwjq5aGUg_X1AhXEgSoKHfUvACkQ2-cCegQIABAA&oq=dogs&gs_lcp=CgNpbWcQAzIECAAQQzIECAAQQzIFCAAQgAQyBQgAEIAEMgUIABCABDIFCAAQgAQyBQgAEIAEMgQIABBDMgUIABCABDIFCAAQgAQ6BwgAELEDEEM6CAgAEIAEELEDULsJWLkQYNgSaABwAHgAgAGAAYgBnQSSAQMyLjOYAQCgAQGqAQtnd3Mtd2l6LWltZ8ABAQ&sclient=img&ei=_fUEYqrzMsSDqgH134DIAg&rlz=1C5GCEA_enRU988RU988&hl=ru')
-#     return img
-
-# @dp.callback_query_handler(state='cats')
-# async def inline(callback_query: CallbackQuery):
-#     state = dp.current_state()
-#     if callback_query.data == 'cats':
-#         driver.get('https://www.google.com/search?q=cats&tbm=isch&chips=q:cats,online_chips:kitten:FofJYT_e7Tg%3D&rlz=1C5GCEA_enRU988RU988&hl=ru&sa=X&ved=2ahUKEwiD3KeTg_X1AhUNCHcKHcAyAUEQ4lYoAHoECAEQGw')
-#         time.sleep(2)
-#     await state.set_state('dogs')
-
-# @dp.callback_query_handler(state='dogs')
-# async def inline(callback_query: CallbackQuery):
-#     state = dp.current_state()
-#     if callback_query.data == 'dogs':
-#         driver.get('https://www.google.com/search?q=dogs&tbm=isch&ved=2ahUKEwjq5aGUg_X1AhXEgSoKHfUvACkQ2-cCegQIABAA&oq=dogs&gs_lcp=CgNpbWcQAzIECAAQQzIECAAQQzIFCAAQgAQyBQgAEIAEMgUIABCABDIFCAAQgAQyBQgAEIAEMgQIABBDMgUIABCABDIFCAAQgAQ6BwgAELEDEEM6CAgAEIAEELEDULsJWLkQYNgSaABwAHgAgAGAAYgBnQSSAQMyLjOYAQCgAQGqAQtnd3Mtd2l6LWltZ8ABAQ&sclient=img&ei=_fUEYqrzMsSDqgH134DIAg&rlz=1C5GCEA_enRU988RU988&hl=ru')
-#         time.sleep(2)
-#     await state.set_state('next')
-#
-#
+def give_up(user_id):
+    keyboard = ReplyKeyboardMarkup(one_time_keyboard=True,
+                                   resize_keyboard=True)
+    keyboard.insert(InlineKeyboardButton('Give up 🏳️', callback_data='_'))
+    return keyboard
 
 
-'''
-говно, переделывай
-'''
-# @dp.message_handler(commands=['start'])
-# async def menu(msg: types.Message):
-#     print('я родился')
-#     state = dp.current_state()
-#     await state.set_state('chose')
-#     c.execute('SELECT user_id FROM baza')
-#     u = c.fetchall()
-#     if not str(msg.from_user.id) in str(u):
-#         c.executescript(f"INSERT INTO baza VALUES ({msg.from_user.id}, '{msg.from_user.username}', 0)")
-#     # await bot.send_message(msg.from_user.id, text='Ку, вот что умеет бот', reply_markup=keyboard_menu(msg.from_user.id))
-#
-#
-# @dp.callback_query_handler()
-# async def start(callback_query: CallbackQuery):
-#     await bot.send_message(callback_query.from_user.id, text='Ку, вот что умеет бот', reply_markup=keyboard_menu(callback_query.from_user.id))
-#
-#
-#
-# def keyboard_menu(user_id):
-#     keyboard = InlineKeyboardMarkup(row_width=2)
-#     c.execute(f'SELECT balance FROM baza WHERE user_id = {user_id}')
-#     services = {'Pets images': 'pets', 'Google Query': 'google'}
-#     for service in services:
-#         keyboard.insert(InlineKeyboardButton(service, callback_data=services[service]))
-#     return keyboard
-#
-# @dp.callback_query_handler(state='chose')
-# async def any_query(callback_query: CallbackQuery):
-#     state = dp.current_state()
-#     print('ccchhoo')
-#     await state.set_state(callback_query.data)
-#
-# @dp.callback_query_handler(state='pets')
-# async def any_query(callback_query: CallbackQuery):
-#     print('pets')
-#     state = dp.current_state()
-#     await state.set_state('chose')
-#
-# @dp.callback_query_handler(state='google')
-# async def any_query(callback_query: CallbackQuery):
-#     print('google')
-#     state = dp.current_state()
-#     await state.set_state('chose')
+@dp.message_handler(state='*', commands=['cities'])
+async def on_text(msg: types.Message):
+    state = dp.current_state()
+    id = msg.from_user.id
+    await bot.send_message(id, text=city_rules, reply_markup=game_rules(id))
+    await state.set_state('start_game')
 
-'''
-ээ тут что то другое уже
-'''
 
-# @dp.callback_query_handler(state='l')
-# async def inline_keyboard(callback_query: CallbackQuery):
-#     state = dp.current_state(user=callback_query.from_user.id)
-#     if callback_query.data == 'l':
-#         await state.set_state('ok')
-#         await bot.send_photo(callback_query.from_user.id, 'https://i.ytimg.com/vi/Ikg21BVWPVw/hqdefault.jpg', 'либерашка')
-#         keyboard = InlineKeyboardMarkup(row_width=2)
-#         await bot.send_message(callback_query.from_user.id, keyboard.insert(InlineKeyboardButton('OK', callback_data='ok')))
-#     await state.set_state('r')
-#
-#
-# @dp.callback_query_handler(state='r')
-# async def inline_keyboard(callback_query: CallbackQuery):
-#     state = dp.current_state()
-#     await state.set_state('ok')
-#     await bot.send_photo(callback_query.from_user.id, 'https://lurkmore.so/images/thumb/8/87/Vatnik_33.jpg/662px-Vatnik_33.jpg', 'милый правачок')
-#     keyboard.insert(InlineKeyboardButton('OK', callback_data='ok'))
+@dp.callback_query_handler(state='start_game')
+async def inline_keyboard(callback_query: CallbackQuery, state: FSMContext):
+    id = callback_query.from_user.id
+    await bot.send_message(id, text='Odintsovo \n O', reply_markup=give_up(id))
+    named = ['Odintsovo']
+    await state.update_data(name='Odintsovo', named=named)
+    await City.name.set()
+
+
+@dp.message_handler(lambda message: message.text == 'Give up 🏳️', state=City.name)
+async def on_text(msg: types.Message, state: FSMContext):
+    data = await state.get_data()
+    id = msg.from_user.id
+    await bot.send_message(id, text=f"Your score is {int((len(data['named'])-1)/2)}")
+    await state.finish()
+    await bot.send_message(msg.from_user.id, text=start_text)
+
+
+@dp.message_handler(state=City.name)
+async def on_text(msg: types.Message, state: FSMContext):
+    city = msg.text[0].capitalize() + msg.text[1:].lower()
+    id = msg.from_user.id
+    data = await state.get_data()
+    named = data['named']
+    task = data['name'][-1]
+    if city[0] not in [task.lower(), task.capitalize()]:
+        await bot.send_message(id, text=f"Your task is to send a name of the city begins on '{task[0].capitalize()}'")
+    else:
+        c.execute(f"select name from cities where name = '{city}'")
+        town = c.fetchone()
+        if town is None:
+            await bot.send_message(id, text=f"There is no {city} city or it's too unpopular. Try again")
+        else:
+            town = town[0]
+            if town in named:
+                await bot.send_message(id, text=f"There already was {town} city in this game. Send another")
+            else:
+                named.append(town)
+                nl = town[-1].capitalize()
+                c.execute(f"select name from cities where name like('{nl}%')")
+                next = c.fetchone()[0]
+                while next in named:
+                    next = c.fetchone()[0]
+                named.append(next)
+                await bot.send_message(id, text=f"{next} \n {next[-1].capitalize()}")
+                await state.update_data(name=next, named=named)
 
 executor.start_polling(dp, skip_updates=True)
